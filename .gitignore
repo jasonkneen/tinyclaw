@@ -6,6 +6,7 @@ dist/
 
 # TinyClaw runtime files
 .tinyclaw/logs/
+.tinyclaw/channels
 .tinyclaw/whatsapp-session/
 .tinyclaw/queue/
 .tinyclaw/reset_flag
