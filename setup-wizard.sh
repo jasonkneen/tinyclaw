@@ -19,18 +19,26 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Channel selection
-echo "Which messaging channel do you want to use?"
+echo "Which messaging channels do you want to use?"
 echo ""
 echo "  1) Discord"
 echo "  2) WhatsApp"
-echo "  3) Both"
+echo "  3) Telegram"
+echo "  4) Discord + WhatsApp"
+echo "  5) Discord + Telegram"
+echo "  6) WhatsApp + Telegram"
+echo "  7) All (Discord + WhatsApp + Telegram)"
 echo ""
-read -rp "Choose [1-3]: " CHANNEL_CHOICE
+read -rp "Choose [1-7]: " CHANNEL_CHOICE
 
 case "$CHANNEL_CHOICE" in
     1) CHANNEL="discord" ;;
     2) CHANNEL="whatsapp" ;;
-    3) CHANNEL="both" ;;
+    3) CHANNEL="telegram" ;;
+    4) CHANNEL="discord+whatsapp" ;;
+    5) CHANNEL="discord+telegram" ;;
+    6) CHANNEL="whatsapp+telegram" ;;
+    7) CHANNEL="all" ;;
     *)
         echo -e "${RED}Invalid choice${NC}"
         exit 1
@@ -41,7 +49,7 @@ echo ""
 
 # Discord bot token (if needed)
 DISCORD_TOKEN=""
-if [[ "$CHANNEL" == "discord" ]] || [[ "$CHANNEL" == "both" ]]; then
+if [[ "$CHANNEL" == *"discord"* ]] || [[ "$CHANNEL" == "all" ]]; then
     echo "Enter your Discord bot token:"
     echo -e "${YELLOW}(Get one at: https://discord.com/developers/applications)${NC}"
     echo ""
@@ -52,6 +60,22 @@ if [[ "$CHANNEL" == "discord" ]] || [[ "$CHANNEL" == "both" ]]; then
         exit 1
     fi
     echo -e "${GREEN}✓ Discord token saved${NC}"
+    echo ""
+fi
+
+# Telegram bot token (if needed)
+TELEGRAM_TOKEN=""
+if [[ "$CHANNEL" == *"telegram"* ]] || [[ "$CHANNEL" == "all" ]]; then
+    echo "Enter your Telegram bot token:"
+    echo -e "${YELLOW}(Create a bot via @BotFather on Telegram to get a token)${NC}"
+    echo ""
+    read -rp "Token: " TELEGRAM_TOKEN
+
+    if [ -z "$TELEGRAM_TOKEN" ]; then
+        echo -e "${RED}Telegram bot token is required${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Telegram token saved${NC}"
     echo ""
 fi
 
@@ -95,6 +119,7 @@ cat > "$SETTINGS_FILE" <<EOF
   "channel": "$CHANNEL",
   "model": "$MODEL",
   "discord_bot_token": "$DISCORD_TOKEN",
+  "telegram_bot_token": "$TELEGRAM_TOKEN",
   "heartbeat_interval": $HEARTBEAT_INTERVAL
 }
 EOF

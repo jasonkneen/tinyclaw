@@ -1,5 +1,5 @@
 #!/bin/bash
-# TinyClaw Simple - Main daemon using tmux + claude -c -p + WhatsApp + Discord
+# TinyClaw Simple - Main daemon using tmux + claude -c -p + WhatsApp + Discord + Telegram
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMUX_SESSION="tinyclaw"
@@ -27,6 +27,7 @@ load_settings() {
     CHANNEL=$(grep -o '"channel"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
     MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
     DISCORD_TOKEN=$(grep -o '"discord_bot_token"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+    TELEGRAM_TOKEN=$(grep -o '"telegram_bot_token"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
 
     return 0
 }
@@ -53,7 +54,7 @@ start_daemon() {
     fi
 
     # Build TypeScript if needed
-    if [ ! -d "$SCRIPT_DIR/dist" ] || [ "$SCRIPT_DIR/src/whatsapp-client.ts" -nt "$SCRIPT_DIR/dist/whatsapp-client.js" ] || [ "$SCRIPT_DIR/src/queue-processor.ts" -nt "$SCRIPT_DIR/dist/queue-processor.js" ] || [ "$SCRIPT_DIR/src/discord-client.ts" -nt "$SCRIPT_DIR/dist/discord-client.js" ]; then
+    if [ ! -d "$SCRIPT_DIR/dist" ] || [ "$SCRIPT_DIR/src/whatsapp-client.ts" -nt "$SCRIPT_DIR/dist/whatsapp-client.js" ] || [ "$SCRIPT_DIR/src/queue-processor.ts" -nt "$SCRIPT_DIR/dist/queue-processor.js" ] || [ "$SCRIPT_DIR/src/discord-client.ts" -nt "$SCRIPT_DIR/dist/discord-client.js" ] || [ "$SCRIPT_DIR/src/telegram-client.ts" -nt "$SCRIPT_DIR/dist/telegram-client.js" 2>/dev/null ]; then
         echo -e "${YELLOW}Building TypeScript...${NC}"
         cd "$SCRIPT_DIR"
         npm run build
@@ -75,11 +76,17 @@ start_daemon() {
     # Set channel flags
     HAS_DISCORD=false
     HAS_WHATSAPP=false
+    HAS_TELEGRAM=false
 
     case "$CHANNEL" in
         discord) HAS_DISCORD=true ;;
         whatsapp) HAS_WHATSAPP=true ;;
+        telegram) HAS_TELEGRAM=true ;;
+        discord+whatsapp) HAS_DISCORD=true; HAS_WHATSAPP=true ;;
+        discord+telegram) HAS_DISCORD=true; HAS_TELEGRAM=true ;;
+        whatsapp+telegram) HAS_WHATSAPP=true; HAS_TELEGRAM=true ;;
         both) HAS_DISCORD=true; HAS_WHATSAPP=true ;;
+        all) HAS_DISCORD=true; HAS_WHATSAPP=true; HAS_TELEGRAM=true ;;
         *)
             echo -e "${RED}Invalid channel config: $CHANNEL${NC}"
             echo "Run './tinyclaw.sh setup' to reconfigure"
@@ -94,25 +101,30 @@ start_daemon() {
         return 1
     fi
 
-    # Write Discord token to .env for the Node.js client
+    # Validate Telegram token if Telegram is enabled
+    if [ "$HAS_TELEGRAM" = true ] && [ -z "$TELEGRAM_TOKEN" ]; then
+        echo -e "${RED}Telegram is configured but bot token is missing${NC}"
+        echo "Run './tinyclaw.sh setup' to reconfigure"
+        return 1
+    fi
+
+    # Write tokens to .env for the Node.js clients
+    ENV_FILE="$SCRIPT_DIR/.env"
+    : > "$ENV_FILE"  # Start fresh
+
     if [ "$HAS_DISCORD" = true ]; then
-        if [ -f "$SCRIPT_DIR/.env" ]; then
-            # Update existing .env
-            if grep -q "^DISCORD_BOT_TOKEN=" "$SCRIPT_DIR/.env"; then
-                sed -i.bak "s/^DISCORD_BOT_TOKEN=.*/DISCORD_BOT_TOKEN=$DISCORD_TOKEN/" "$SCRIPT_DIR/.env"
-            else
-                echo "DISCORD_BOT_TOKEN=$DISCORD_TOKEN" >> "$SCRIPT_DIR/.env"
-            fi
-        else
-            # Create new .env
-            echo "DISCORD_BOT_TOKEN=$DISCORD_TOKEN" > "$SCRIPT_DIR/.env"
-        fi
+        echo "DISCORD_BOT_TOKEN=$DISCORD_TOKEN" >> "$ENV_FILE"
+    fi
+
+    if [ "$HAS_TELEGRAM" = true ]; then
+        echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_TOKEN" >> "$ENV_FILE"
     fi
 
     # Report channels
     echo -e "${BLUE}Channels:${NC}"
     [ "$HAS_DISCORD" = true ] && echo -e "  ${GREEN}✓${NC} Discord"
     [ "$HAS_WHATSAPP" = true ] && echo -e "  ${GREEN}✓${NC} WhatsApp"
+    [ "$HAS_TELEGRAM" = true ] && echo -e "  ${GREEN}✓${NC} Telegram"
     echo ""
 
     # Build log tail command based on available channels
@@ -123,13 +135,70 @@ start_daemon() {
     if [ "$HAS_WHATSAPP" = true ]; then
         LOG_TAIL_CMD="$LOG_TAIL_CMD .tinyclaw/logs/whatsapp.log"
     fi
+    if [ "$HAS_TELEGRAM" = true ]; then
+        LOG_TAIL_CMD="$LOG_TAIL_CMD .tinyclaw/logs/telegram.log"
+    fi
 
     tmux new-session -d -s "$TMUX_SESSION" -n "tinyclaw" -c "$SCRIPT_DIR"
 
-    if [ "$HAS_WHATSAPP" = true ] && [ "$HAS_DISCORD" = true ]; then
-        # Both channels: 5 panes
+    # Count active channels for layout
+    CHANNEL_COUNT=0
+    [ "$HAS_WHATSAPP" = true ] && CHANNEL_COUNT=$((CHANNEL_COUNT + 1))
+    [ "$HAS_DISCORD" = true ] && CHANNEL_COUNT=$((CHANNEL_COUNT + 1))
+    [ "$HAS_TELEGRAM" = true ] && CHANNEL_COUNT=$((CHANNEL_COUNT + 1))
+
+    # Build list of channel commands and labels
+    CHANNEL_CMDS=()
+    CHANNEL_LABELS=()
+    WHATSAPP_PANE=-1
+
+    if [ "$HAS_WHATSAPP" = true ]; then
+        WHATSAPP_PANE=${#CHANNEL_CMDS[@]}
+        CHANNEL_CMDS+=("cd '$SCRIPT_DIR' && node dist/whatsapp-client.js")
+        CHANNEL_LABELS+=("WhatsApp")
+    fi
+    if [ "$HAS_DISCORD" = true ]; then
+        CHANNEL_CMDS+=("cd '$SCRIPT_DIR' && node dist/discord-client.js")
+        CHANNEL_LABELS+=("Discord")
+    fi
+    if [ "$HAS_TELEGRAM" = true ]; then
+        CHANNEL_CMDS+=("cd '$SCRIPT_DIR' && node dist/telegram-client.js")
+        CHANNEL_LABELS+=("Telegram")
+    fi
+
+    if [ "$CHANNEL_COUNT" -eq 3 ]; then
+        # All three channels: 6 panes
         # ┌──────────┬──────────┬──────────┐
-        # │ WhatsApp │ Discord  │  Queue   │
+        # │ Chan 0   │ Chan 1   │ Chan 2   │
+        # ├──────────┼──────────┼──────────┤
+        # │  Queue   │Heartbeat │   Logs   │
+        # └──────────┴──────────┴──────────┘
+        tmux split-window -v -t "$TMUX_SESSION" -c "$SCRIPT_DIR"
+        tmux split-window -h -t "$TMUX_SESSION:0.0" -c "$SCRIPT_DIR"
+        tmux split-window -h -t "$TMUX_SESSION:0.1" -c "$SCRIPT_DIR"
+        tmux split-window -h -t "$TMUX_SESSION:0.3" -c "$SCRIPT_DIR"
+        tmux split-window -h -t "$TMUX_SESSION:0.4" -c "$SCRIPT_DIR"
+
+        tmux send-keys -t "$TMUX_SESSION:0.0" "${CHANNEL_CMDS[0]}" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.1" "${CHANNEL_CMDS[1]}" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.2" "${CHANNEL_CMDS[2]}" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.3" "cd '$SCRIPT_DIR' && node dist/queue-processor.js" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.4" "cd '$SCRIPT_DIR' && ./heartbeat-cron.sh" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.5" "cd '$SCRIPT_DIR' && $LOG_TAIL_CMD" C-m
+
+        tmux select-pane -t "$TMUX_SESSION:0.0" -T "${CHANNEL_LABELS[0]}"
+        tmux select-pane -t "$TMUX_SESSION:0.1" -T "${CHANNEL_LABELS[1]}"
+        tmux select-pane -t "$TMUX_SESSION:0.2" -T "${CHANNEL_LABELS[2]}"
+        tmux select-pane -t "$TMUX_SESSION:0.3" -T "Queue"
+        tmux select-pane -t "$TMUX_SESSION:0.4" -T "Heartbeat"
+        tmux select-pane -t "$TMUX_SESSION:0.5" -T "Logs"
+
+        PANE_COUNT=6
+
+    elif [ "$CHANNEL_COUNT" -eq 2 ]; then
+        # Two channels: 5 panes
+        # ┌──────────┬──────────┬──────────┐
+        # │ Chan 0   │ Chan 1   │  Queue   │
         # ├──────────┴──────────┼──────────┤
         # │     Heartbeat       │   Logs   │
         # └─────────────────────┴──────────┘
@@ -138,49 +207,24 @@ start_daemon() {
         tmux split-window -h -t "$TMUX_SESSION:0.1" -c "$SCRIPT_DIR"
         tmux split-window -h -t "$TMUX_SESSION:0.3" -c "$SCRIPT_DIR"
 
-        tmux send-keys -t "$TMUX_SESSION:0.0" "cd '$SCRIPT_DIR' && node dist/whatsapp-client.js" C-m
-        tmux send-keys -t "$TMUX_SESSION:0.1" "cd '$SCRIPT_DIR' && node dist/discord-client.js" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.0" "${CHANNEL_CMDS[0]}" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.1" "${CHANNEL_CMDS[1]}" C-m
         tmux send-keys -t "$TMUX_SESSION:0.2" "cd '$SCRIPT_DIR' && node dist/queue-processor.js" C-m
         tmux send-keys -t "$TMUX_SESSION:0.3" "cd '$SCRIPT_DIR' && ./heartbeat-cron.sh" C-m
         tmux send-keys -t "$TMUX_SESSION:0.4" "cd '$SCRIPT_DIR' && $LOG_TAIL_CMD" C-m
 
-        tmux select-pane -t "$TMUX_SESSION:0.0" -T "WhatsApp"
-        tmux select-pane -t "$TMUX_SESSION:0.1" -T "Discord"
+        tmux select-pane -t "$TMUX_SESSION:0.0" -T "${CHANNEL_LABELS[0]}"
+        tmux select-pane -t "$TMUX_SESSION:0.1" -T "${CHANNEL_LABELS[1]}"
         tmux select-pane -t "$TMUX_SESSION:0.2" -T "Queue"
         tmux select-pane -t "$TMUX_SESSION:0.3" -T "Heartbeat"
         tmux select-pane -t "$TMUX_SESSION:0.4" -T "Logs"
 
         PANE_COUNT=5
-        WHATSAPP_PANE=0
-
-    elif [ "$HAS_DISCORD" = true ]; then
-        # Discord only: 4 panes (2x2 grid)
-        # ┌──────────┬──────────┐
-        # │ Discord  │  Queue   │
-        # ├──────────┼──────────┤
-        # │Heartbeat │   Logs   │
-        # └──────────┴──────────┘
-        tmux split-window -v -t "$TMUX_SESSION" -c "$SCRIPT_DIR"
-        tmux split-window -h -t "$TMUX_SESSION:0.0" -c "$SCRIPT_DIR"
-        tmux split-window -h -t "$TMUX_SESSION:0.2" -c "$SCRIPT_DIR"
-
-        tmux send-keys -t "$TMUX_SESSION:0.0" "cd '$SCRIPT_DIR' && node dist/discord-client.js" C-m
-        tmux send-keys -t "$TMUX_SESSION:0.1" "cd '$SCRIPT_DIR' && node dist/queue-processor.js" C-m
-        tmux send-keys -t "$TMUX_SESSION:0.2" "cd '$SCRIPT_DIR' && ./heartbeat-cron.sh" C-m
-        tmux send-keys -t "$TMUX_SESSION:0.3" "cd '$SCRIPT_DIR' && $LOG_TAIL_CMD" C-m
-
-        tmux select-pane -t "$TMUX_SESSION:0.0" -T "Discord"
-        tmux select-pane -t "$TMUX_SESSION:0.1" -T "Queue"
-        tmux select-pane -t "$TMUX_SESSION:0.2" -T "Heartbeat"
-        tmux select-pane -t "$TMUX_SESSION:0.3" -T "Logs"
-
-        PANE_COUNT=4
-        WHATSAPP_PANE=-1
 
     else
-        # WhatsApp only: 4 panes (2x2 grid)
+        # Single channel: 4 panes (2x2 grid)
         # ┌──────────┬──────────┐
-        # │ WhatsApp │  Queue   │
+        # │ Channel  │  Queue   │
         # ├──────────┼──────────┤
         # │Heartbeat │   Logs   │
         # └──────────┴──────────┘
@@ -188,18 +232,17 @@ start_daemon() {
         tmux split-window -h -t "$TMUX_SESSION:0.0" -c "$SCRIPT_DIR"
         tmux split-window -h -t "$TMUX_SESSION:0.2" -c "$SCRIPT_DIR"
 
-        tmux send-keys -t "$TMUX_SESSION:0.0" "cd '$SCRIPT_DIR' && node dist/whatsapp-client.js" C-m
+        tmux send-keys -t "$TMUX_SESSION:0.0" "${CHANNEL_CMDS[0]}" C-m
         tmux send-keys -t "$TMUX_SESSION:0.1" "cd '$SCRIPT_DIR' && node dist/queue-processor.js" C-m
         tmux send-keys -t "$TMUX_SESSION:0.2" "cd '$SCRIPT_DIR' && ./heartbeat-cron.sh" C-m
         tmux send-keys -t "$TMUX_SESSION:0.3" "cd '$SCRIPT_DIR' && $LOG_TAIL_CMD" C-m
 
-        tmux select-pane -t "$TMUX_SESSION:0.0" -T "WhatsApp"
+        tmux select-pane -t "$TMUX_SESSION:0.0" -T "${CHANNEL_LABELS[0]}"
         tmux select-pane -t "$TMUX_SESSION:0.1" -T "Queue"
         tmux select-pane -t "$TMUX_SESSION:0.2" -T "Heartbeat"
         tmux select-pane -t "$TMUX_SESSION:0.3" -T "Logs"
 
         PANE_COUNT=4
-        WHATSAPP_PANE=0
     fi
 
     echo ""
@@ -286,7 +329,7 @@ start_daemon() {
     echo "  Attach:  tmux attach -t $TMUX_SESSION"
     echo ""
 
-    log "Daemon started with $PANE_COUNT panes (discord=$HAS_DISCORD, whatsapp=$HAS_WHATSAPP)"
+    log "Daemon started with $PANE_COUNT panes (discord=$HAS_DISCORD, whatsapp=$HAS_WHATSAPP, telegram=$HAS_TELEGRAM)"
 }
 
 # Stop daemon
@@ -300,6 +343,7 @@ stop_daemon() {
     # Kill any remaining processes
     pkill -f "dist/whatsapp-client.js" || true
     pkill -f "dist/discord-client.js" || true
+    pkill -f "dist/telegram-client.js" || true
     pkill -f "dist/queue-processor.js" || true
     pkill -f "heartbeat-cron.sh" || true
 
@@ -357,6 +401,12 @@ status_daemon() {
         echo -e "Discord Client:  ${RED}Not Running${NC}"
     fi
 
+    if pgrep -f "dist/telegram-client.js" > /dev/null; then
+        echo -e "Telegram Client: ${GREEN}Running${NC}"
+    else
+        echo -e "Telegram Client: ${RED}Not Running${NC}"
+    fi
+
     if pgrep -f "dist/queue-processor.js" > /dev/null; then
         echo -e "Queue Processor: ${GREEN}Running${NC}"
     else
@@ -380,16 +430,22 @@ status_daemon() {
     tail -n 5 "$LOG_DIR/discord.log" 2>/dev/null || echo "  No Discord activity yet"
 
     echo ""
+    echo "Recent Telegram Activity:"
+    echo "────────────────────────"
+    tail -n 5 "$LOG_DIR/telegram.log" 2>/dev/null || echo "  No Telegram activity yet"
+
+    echo ""
     echo "Recent Heartbeats:"
     echo "─────────────────"
     tail -n 3 "$LOG_DIR/heartbeat.log" 2>/dev/null || echo "  No heartbeat logs yet"
 
     echo ""
     echo "Logs:"
-    echo "  WhatsApp: tail -f $LOG_DIR/whatsapp.log"
-    echo "  Discord:  tail -f $LOG_DIR/discord.log"
+    echo "  WhatsApp:  tail -f $LOG_DIR/whatsapp.log"
+    echo "  Discord:   tail -f $LOG_DIR/discord.log"
+    echo "  Telegram:  tail -f $LOG_DIR/telegram.log"
     echo "  Heartbeat: tail -f $LOG_DIR/heartbeat.log"
-    echo "  Daemon: tail -f $LOG_DIR/daemon.log"
+    echo "  Daemon:    tail -f $LOG_DIR/daemon.log"
 }
 
 # View logs
@@ -401,6 +457,9 @@ logs() {
         discord|dc)
             tail -f "$LOG_DIR/discord.log"
             ;;
+        telegram|tg)
+            tail -f "$LOG_DIR/telegram.log"
+            ;;
         heartbeat|hb)
             tail -f "$LOG_DIR/heartbeat.log"
             ;;
@@ -408,7 +467,7 @@ logs() {
             tail -f "$LOG_DIR/daemon.log"
             ;;
         *)
-            echo "Usage: $0 logs [whatsapp|discord|heartbeat|daemon]"
+            echo "Usage: $0 logs [whatsapp|discord|telegram|heartbeat|daemon]"
             ;;
     esac
 }
@@ -468,13 +527,21 @@ case "${1:-}" in
                     echo ""
                     echo "Or manually edit .tinyclaw/settings.json to change discord_bot_token"
                     ;;
+                telegram)
+                    echo -e "${YELLOW}🔄 Resetting Telegram authentication...${NC}"
+                    echo ""
+                    echo "To reset Telegram, run the setup wizard to update your bot token:"
+                    echo -e "  ${GREEN}./tinyclaw.sh setup${NC}"
+                    echo ""
+                    echo "Or manually edit .tinyclaw/settings.json to change telegram_bot_token"
+                    ;;
                 *)
-                    echo "Usage: $0 channels reset {whatsapp|discord}"
+                    echo "Usage: $0 channels reset {whatsapp|discord|telegram}"
                     exit 1
                     ;;
             esac
         else
-            echo "Usage: $0 channels reset {whatsapp|discord}"
+            echo "Usage: $0 channels reset {whatsapp|discord|telegram}"
             exit 1
         fi
         ;;
@@ -526,7 +593,7 @@ case "${1:-}" in
         "$SCRIPT_DIR/setup-wizard.sh"
         ;;
     *)
-        echo -e "${BLUE}TinyClaw Simple - Claude Code + WhatsApp + Discord${NC}"
+        echo -e "${BLUE}TinyClaw Simple - Claude Code + WhatsApp + Discord + Telegram${NC}"
         echo ""
         echo "Usage: $0 {start|stop|restart|status|setup|send|logs|reset|channels|model|attach}"
         echo ""
@@ -537,9 +604,9 @@ case "${1:-}" in
         echo "  status                   Show current status"
         echo "  setup                    Run setup wizard (change channels/model/heartbeat)"
         echo "  send <msg>               Send message to Claude manually"
-        echo "  logs [type]              View logs (whatsapp|discord|heartbeat|daemon|queue)"
+        echo "  logs [type]              View logs (whatsapp|discord|telegram|heartbeat|daemon|queue)"
         echo "  reset                    Reset conversation (next message starts fresh)"
-        echo "  channels reset <channel> Reset channel authentication (whatsapp|discord)"
+        echo "  channels reset <channel> Reset channel authentication (whatsapp|discord|telegram)"
         echo "  model [sonnet|opus]      Show or switch Claude model"
         echo "  attach                   Attach to tmux session"
         echo ""
@@ -549,7 +616,7 @@ case "${1:-}" in
         echo "  $0 model opus"
         echo "  $0 send 'What time is it?'"
         echo "  $0 channels reset whatsapp"
-        echo "  $0 logs discord"
+        echo "  $0 logs telegram"
         echo ""
         exit 1
         ;;
