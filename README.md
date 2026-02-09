@@ -40,35 +40,6 @@ TinyClaw is a lightweight wrapper around [Claude Code](https://claude.com/claude
                           responses
 ```
 
-### Tmux Layouts
-
-**WhatsApp Only:**
-```
-┌──────────────┬──────────────┐
-│  WhatsApp    │    Queue     │
-├──────────────┼──────────────┤
-│  Heartbeat   │    Logs      │
-└──────────────┴──────────────┘
-```
-
-**Discord Only:**
-```
-┌──────────────┬──────────────┐
-│  Discord     │    Queue     │
-├──────────────┼──────────────┤
-│  Heartbeat   │    Logs      │
-└──────────────┴──────────────┘
-```
-
-**Both Channels:**
-```
-┌──────────┬──────────┬──────────┐
-│ WhatsApp │ Discord  │  Queue   │
-├──────────┴──────────┼──────────┤
-│     Heartbeat       │   Logs   │
-└─────────────────────┴──────────┘
-```
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -125,6 +96,13 @@ Choose [1-2]: 1
 
 ✓ Model: sonnet
 
+Heartbeat interval (seconds)?
+(How often Claude checks in proactively)
+
+Interval [default: 500]: 500
+
+✓ Heartbeat interval: 500s
+
 ✓ Configuration saved to .tinyclaw/settings.json
 ```
 
@@ -168,7 +146,7 @@ You'll get a response! 🤖
 # Start TinyClaw
 ./tinyclaw.sh start
 
-# Run setup wizard (change channels/model)
+# Run setup wizard (change channels/model/heartbeat)
 ./tinyclaw.sh setup
 
 # Check status
@@ -179,6 +157,15 @@ You'll get a response! 🤖
 
 # Reset conversation
 ./tinyclaw.sh reset
+
+# Reset channel authentication
+./tinyclaw.sh channels reset whatsapp  # Clear WhatsApp session
+./tinyclaw.sh channels reset discord   # Shows Discord reset instructions
+
+# Switch Claude model
+./tinyclaw.sh model           # Show current model
+./tinyclaw.sh model sonnet    # Switch to Sonnet (fast)
+./tinyclaw.sh model opus      # Switch to Opus (smartest)
 
 # View logs
 ./tinyclaw.sh logs whatsapp   # WhatsApp activity
@@ -315,7 +302,8 @@ All configuration is stored in `.tinyclaw/settings.json`:
 {
   "channel": "both",
   "model": "sonnet",
-  "discord_bot_token": "YOUR_TOKEN_HERE"
+  "discord_bot_token": "YOUR_TOKEN_HERE",
+  "heartbeat_interval": 500
 }
 ```
 
@@ -324,13 +312,8 @@ To reconfigure, run:
 ./tinyclaw.sh setup
 ```
 
-### Heartbeat Interval
-
-Edit `heartbeat-cron.sh`:
-
-```bash
-INTERVAL=300  # seconds (5 minutes)
-```
+The heartbeat interval is in seconds (default: 500s = ~8 minutes).
+This controls how often Claude proactively checks in.
 
 ### Heartbeat Prompt
 
@@ -446,9 +429,19 @@ WhatsApp session persists across restarts:
 # Check logs
 ./tinyclaw.sh logs whatsapp
 
-# Re-authenticate
-rm -rf .tinyclaw/whatsapp-session/
+# Reset WhatsApp authentication
+./tinyclaw.sh channels reset whatsapp
 ./tinyclaw.sh restart
+```
+
+### Discord not connecting
+
+```bash
+# Check logs
+./tinyclaw.sh logs discord
+
+# Update Discord bot token
+./tinyclaw.sh setup
 ```
 
 ### Messages not processing

@@ -74,12 +74,28 @@ esac
 echo -e "${GREEN}✓ Model: $MODEL${NC}"
 echo ""
 
+# Heartbeat interval
+echo "Heartbeat interval (seconds)?"
+echo -e "${YELLOW}(How often Claude checks in proactively)${NC}"
+echo ""
+read -rp "Interval [default: 500]: " HEARTBEAT_INPUT
+HEARTBEAT_INTERVAL=${HEARTBEAT_INPUT:-500}
+
+# Validate it's a number
+if ! [[ "$HEARTBEAT_INTERVAL" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}Invalid interval, using default 500${NC}"
+    HEARTBEAT_INTERVAL=500
+fi
+echo -e "${GREEN}✓ Heartbeat interval: ${HEARTBEAT_INTERVAL}s${NC}"
+echo ""
+
 # Write settings.json
 cat > "$SETTINGS_FILE" <<EOF
 {
   "channel": "$CHANNEL",
   "model": "$MODEL",
-  "discord_bot_token": "$DISCORD_TOKEN"
+  "discord_bot_token": "$DISCORD_TOKEN",
+  "heartbeat_interval": $HEARTBEAT_INTERVAL
 }
 EOF
 

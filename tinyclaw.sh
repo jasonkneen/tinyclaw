@@ -446,6 +446,79 @@ case "${1:-}" in
         echo "The next message will start a fresh conversation (without -c)."
         echo "After that, conversation will continue normally."
         ;;
+    channels)
+        if [ "$2" = "reset" ]; then
+            case "$3" in
+                whatsapp)
+                    echo -e "${YELLOW}🔄 Resetting WhatsApp authentication...${NC}"
+                    rm -rf "$SCRIPT_DIR/.tinyclaw/whatsapp-session"
+                    rm -f "$SCRIPT_DIR/.tinyclaw/channels/whatsapp_ready"
+                    rm -f "$SCRIPT_DIR/.tinyclaw/channels/whatsapp_qr.txt"
+                    rm -rf "$SCRIPT_DIR/.wwebjs_cache"
+                    echo -e "${GREEN}✓ WhatsApp session cleared${NC}"
+                    echo ""
+                    echo "Restart TinyClaw to re-authenticate:"
+                    echo -e "  ${GREEN}./tinyclaw.sh restart${NC}"
+                    ;;
+                discord)
+                    echo -e "${YELLOW}🔄 Resetting Discord authentication...${NC}"
+                    echo ""
+                    echo "To reset Discord, run the setup wizard to update your bot token:"
+                    echo -e "  ${GREEN}./tinyclaw.sh setup${NC}"
+                    echo ""
+                    echo "Or manually edit .tinyclaw/settings.json to change discord_bot_token"
+                    ;;
+                *)
+                    echo "Usage: $0 channels reset {whatsapp|discord}"
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "Usage: $0 channels reset {whatsapp|discord}"
+            exit 1
+        fi
+        ;;
+    model)
+        if [ -z "$2" ]; then
+            # Show current model
+            if [ -f "$SETTINGS_FILE" ]; then
+                CURRENT_MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+                echo -e "${BLUE}Current model: ${GREEN}$CURRENT_MODEL${NC}"
+            else
+                echo -e "${RED}No settings file found${NC}"
+                exit 1
+            fi
+        else
+            case "$2" in
+                sonnet|opus)
+                    if [ ! -f "$SETTINGS_FILE" ]; then
+                        echo -e "${RED}No settings file found. Run setup first.${NC}"
+                        exit 1
+                    fi
+
+                    # Update model in settings.json
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                        sed -i '' "s/\"model\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"model\": \"$2\"/" "$SETTINGS_FILE"
+                    else
+                        sed -i "s/\"model\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"model\": \"$2\"/" "$SETTINGS_FILE"
+                    fi
+
+                    echo -e "${GREEN}✓ Model switched to: $2${NC}"
+                    echo ""
+                    echo "Note: This affects the queue processor. Changes take effect on next message."
+                    ;;
+                *)
+                    echo "Usage: $0 model {sonnet|opus}"
+                    echo ""
+                    echo "Examples:"
+                    echo "  $0 model          # Show current model"
+                    echo "  $0 model sonnet   # Switch to Sonnet"
+                    echo "  $0 model opus     # Switch to Opus"
+                    exit 1
+                    ;;
+            esac
+        fi
+        ;;
     attach)
         tmux attach -t "$TMUX_SESSION"
         ;;
@@ -455,24 +528,27 @@ case "${1:-}" in
     *)
         echo -e "${BLUE}TinyClaw Simple - Claude Code + WhatsApp + Discord${NC}"
         echo ""
-        echo "Usage: $0 {start|stop|restart|status|setup|send|logs|reset|attach}"
+        echo "Usage: $0 {start|stop|restart|status|setup|send|logs|reset|channels|model|attach}"
         echo ""
         echo "Commands:"
-        echo "  start          Start TinyClaw"
-        echo "  stop           Stop all processes"
-        echo "  restart        Restart TinyClaw"
-        echo "  status         Show current status"
-        echo "  setup          Change messaging channel (Discord/WhatsApp/Both)"
-        echo "  send <msg>     Send message to Claude manually"
-        echo "  logs [type]    View logs (whatsapp|discord|heartbeat|daemon|queue)"
-        echo "  reset          Reset conversation (next message starts fresh)"
-        echo "  attach         Attach to tmux session"
+        echo "  start                    Start TinyClaw"
+        echo "  stop                     Stop all processes"
+        echo "  restart                  Restart TinyClaw"
+        echo "  status                   Show current status"
+        echo "  setup                    Run setup wizard (change channels/model/heartbeat)"
+        echo "  send <msg>               Send message to Claude manually"
+        echo "  logs [type]              View logs (whatsapp|discord|heartbeat|daemon|queue)"
+        echo "  reset                    Reset conversation (next message starts fresh)"
+        echo "  channels reset <channel> Reset channel authentication (whatsapp|discord)"
+        echo "  model [sonnet|opus]      Show or switch Claude model"
+        echo "  attach                   Attach to tmux session"
         echo ""
         echo "Examples:"
         echo "  $0 start"
         echo "  $0 status"
+        echo "  $0 model opus"
         echo "  $0 send 'What time is it?'"
-        echo "  $0 reset"
+        echo "  $0 channels reset whatsapp"
         echo "  $0 logs discord"
         echo ""
         exit 1

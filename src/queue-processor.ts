@@ -18,7 +18,7 @@ const MODEL_CONFIG = path.join(SCRIPT_DIR, '.tinyclaw/model');
 
 // Model name mapping
 const MODEL_IDS: Record<string, string> = {
-    'sonnet': 'claude-sonnet-4-5-20250929',
+    'sonnet': 'claude-sonnet-4-5',
     'opus': 'claude-opus-4-6',
 };
 
@@ -29,7 +29,7 @@ function getModelFlag(): string {
         if (modelId) {
             return `--model ${modelId} `;
         }
-    } catch {}
+    } catch { }
     return '';
 }
 
@@ -94,12 +94,12 @@ async function processMessage(messageFile: string): Promise<void> {
         try {
             const modelFlag = getModelFlag();
             response = execSync(
-              `cd "${SCRIPT_DIR}" && claude --dangerously-skip-permissions ${modelFlag}${continueFlag}-p "${message.replace(/"/g, '\\"')}"`,
-              {
-                encoding: "utf-8",
-                timeout: 120000, // 2 minute timeout
-                maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-              },
+                `cd "${SCRIPT_DIR}" && claude --dangerously-skip-permissions ${modelFlag}${continueFlag}-p "${message.replace(/"/g, '\\"')}"`,
+                {
+                    encoding: "utf-8",
+                    timeout: 120000, // 2 minute timeout
+                    maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+                },
             );
         } catch (error) {
             log('ERROR', `Claude error: ${(error as Error).message}`);
