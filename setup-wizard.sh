@@ -18,66 +18,66 @@ echo -e "${GREEN}  TinyClaw - Setup Wizard${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Channel selection
-echo "Which messaging channels do you want to use?"
-echo ""
-echo "  1) Discord"
-echo "  2) WhatsApp"
-echo "  3) Telegram"
-echo "  4) Discord + WhatsApp"
-echo "  5) Discord + Telegram"
-echo "  6) WhatsApp + Telegram"
-echo "  7) All (Discord + WhatsApp + Telegram)"
-echo ""
-read -rp "Choose [1-7]: " CHANNEL_CHOICE
+# --- Channel registry ---
+# To add a new channel, add its ID here and fill in the config arrays below.
+ALL_CHANNELS=(discord whatsapp telegram)
 
-case "$CHANNEL_CHOICE" in
-    1) CHANNEL="discord" ;;
-    2) CHANNEL="whatsapp" ;;
-    3) CHANNEL="telegram" ;;
-    4) CHANNEL="discord+whatsapp" ;;
-    5) CHANNEL="discord+telegram" ;;
-    6) CHANNEL="whatsapp+telegram" ;;
-    7) CHANNEL="all" ;;
-    *)
-        echo -e "${RED}Invalid choice${NC}"
-        exit 1
-        ;;
-esac
-echo -e "${GREEN}✓ Channel: $CHANNEL${NC}"
+declare -A CHANNEL_DISPLAY=(
+    [discord]="Discord"
+    [whatsapp]="WhatsApp"
+    [telegram]="Telegram"
+)
+declare -A CHANNEL_TOKEN_KEY=(
+    [discord]="discord_bot_token"
+    [telegram]="telegram_bot_token"
+)
+declare -A CHANNEL_TOKEN_PROMPT=(
+    [discord]="Enter your Discord bot token:"
+    [telegram]="Enter your Telegram bot token:"
+)
+declare -A CHANNEL_TOKEN_HELP=(
+    [discord]="(Get one at: https://discord.com/developers/applications)"
+    [telegram]="(Create a bot via @BotFather on Telegram to get a token)"
+)
+
+# Channel selection - simple checklist
+echo "Which messaging channels do you want to enable?"
 echo ""
 
-# Discord bot token (if needed)
-DISCORD_TOKEN=""
-if [[ "$CHANNEL" == *"discord"* ]] || [[ "$CHANNEL" == "all" ]]; then
-    echo "Enter your Discord bot token:"
-    echo -e "${YELLOW}(Get one at: https://discord.com/developers/applications)${NC}"
-    echo ""
-    read -rp "Token: " DISCORD_TOKEN
-
-    if [ -z "$DISCORD_TOKEN" ]; then
-        echo -e "${RED}Discord bot token is required${NC}"
-        exit 1
+ENABLED_CHANNELS=()
+for ch in "${ALL_CHANNELS[@]}"; do
+    read -rp "  Enable ${CHANNEL_DISPLAY[$ch]}? [y/N]: " choice
+    if [[ "$choice" =~ ^[yY] ]]; then
+        ENABLED_CHANNELS+=("$ch")
+        echo -e "    ${GREEN}✓ ${CHANNEL_DISPLAY[$ch]} enabled${NC}"
     fi
-    echo -e "${GREEN}✓ Discord token saved${NC}"
-    echo ""
+done
+echo ""
+
+if [ ${#ENABLED_CHANNELS[@]} -eq 0 ]; then
+    echo -e "${RED}No channels selected. At least one channel is required.${NC}"
+    exit 1
 fi
 
-# Telegram bot token (if needed)
-TELEGRAM_TOKEN=""
-if [[ "$CHANNEL" == *"telegram"* ]] || [[ "$CHANNEL" == "all" ]]; then
-    echo "Enter your Telegram bot token:"
-    echo -e "${YELLOW}(Create a bot via @BotFather on Telegram to get a token)${NC}"
-    echo ""
-    read -rp "Token: " TELEGRAM_TOKEN
+# Collect tokens for channels that need them
+declare -A TOKENS
+for ch in "${ENABLED_CHANNELS[@]}"; do
+    token_key="${CHANNEL_TOKEN_KEY[$ch]:-}"
+    if [ -n "$token_key" ]; then
+        echo "${CHANNEL_TOKEN_PROMPT[$ch]}"
+        echo -e "${YELLOW}${CHANNEL_TOKEN_HELP[$ch]}${NC}"
+        echo ""
+        read -rp "Token: " token_value
 
-    if [ -z "$TELEGRAM_TOKEN" ]; then
-        echo -e "${RED}Telegram bot token is required${NC}"
-        exit 1
+        if [ -z "$token_value" ]; then
+            echo -e "${RED}${CHANNEL_DISPLAY[$ch]} bot token is required${NC}"
+            exit 1
+        fi
+        TOKENS[$ch]="$token_value"
+        echo -e "${GREEN}✓ ${CHANNEL_DISPLAY[$ch]} token saved${NC}"
+        echo ""
     fi
-    echo -e "${GREEN}✓ Telegram token saved${NC}"
-    echo ""
-fi
+done
 
 # Model selection
 echo "Which Claude model?"
@@ -105,7 +105,6 @@ echo ""
 read -rp "Interval [default: 500]: " HEARTBEAT_INPUT
 HEARTBEAT_INTERVAL=${HEARTBEAT_INPUT:-500}
 
-# Validate it's a number
 if ! [[ "$HEARTBEAT_INTERVAL" =~ ^[0-9]+$ ]]; then
     echo -e "${RED}Invalid interval, using default 500${NC}"
     HEARTBEAT_INTERVAL=500
@@ -113,14 +112,26 @@ fi
 echo -e "${GREEN}✓ Heartbeat interval: ${HEARTBEAT_INTERVAL}s${NC}"
 echo ""
 
+# Build channels comma-separated string
+CHANNELS_CSV=$(IFS=,; echo "${ENABLED_CHANNELS[*]}")
+
+# Build token entries for settings.json
+TOKENS_JSON=""
+for ch in "${ALL_CHANNELS[@]}"; do
+    token_key="${CHANNEL_TOKEN_KEY[$ch]:-}"
+    if [ -n "$token_key" ]; then
+        token_value="${TOKENS[$ch]:-}"
+        TOKENS_JSON="${TOKENS_JSON}  \"${token_key}\": \"${token_value}\",
+"
+    fi
+done
+
 # Write settings.json
 cat > "$SETTINGS_FILE" <<EOF
 {
-  "channel": "$CHANNEL",
-  "model": "$MODEL",
-  "discord_bot_token": "$DISCORD_TOKEN",
-  "telegram_bot_token": "$TELEGRAM_TOKEN",
-  "heartbeat_interval": $HEARTBEAT_INTERVAL
+  "channels": "${CHANNELS_CSV}",
+  "model": "${MODEL}",
+${TOKENS_JSON}  "heartbeat_interval": ${HEARTBEAT_INTERVAL}
 }
 EOF
 
