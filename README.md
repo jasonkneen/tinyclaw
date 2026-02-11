@@ -260,7 +260,8 @@ You'll get a response! 🤖
 - Processes **ONE message at a time**
 - Routes to configured AI provider:
   - **Anthropic:** Calls `claude -c -p` (supports long-running agent tasks)
-  - **OpenAI:** Calls `codex` CLI with configured model
+  - **OpenAI:** Calls `codex exec resume --last --json` with configured model
+  - Parses JSONL output and extracts final agent message
 - Waits indefinitely for response
 - Writes responses to outgoing queue
 
@@ -286,7 +287,9 @@ Client writes to:
        ↓
 queue-processor.ts picks it up
        ↓
-Routes to AI provider (Claude or OpenAI)
+Routes to AI provider:
+  - Claude: claude -c -p "message"
+  - Codex: codex exec resume --last --json "message"
        ↓
 Writes to:
   .tinyclaw/queue/outgoing/{channel}_<id>.json
@@ -504,7 +507,8 @@ Queue processor handles all channels automatically!
 **OpenAI Codex:**
 - GPT-5.3 Codex (recommended)
 - GPT-5.2
-- Uses `codex` CLI for responses
+- Uses `codex exec resume --last` for conversation continuity
+- Parses JSONL output to extract agent messages
 - Requires Codex CLI to be installed and authenticated
 
 Switch providers and models in one command:

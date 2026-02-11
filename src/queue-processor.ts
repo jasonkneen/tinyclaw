@@ -151,18 +151,45 @@ async function processMessage(messageFile: string): Promise<void> {
         let response: string;
         try {
             if (provider === 'openai') {
-                // Use Codex CLI
+                // Use Codex CLI with exec
                 log('INFO', `Using Codex CLI`);
 
+                // Check if we should reset conversation (start fresh without resume)
+                const shouldReset = fs.existsSync(RESET_FLAG);
+                const resumeFlag = shouldReset ? '' : 'resume --last ';
+
+                if (shouldReset) {
+                    log('INFO', '🔄 Resetting Codex conversation (starting fresh without resume)');
+                    fs.unlinkSync(RESET_FLAG);
+                }
+
                 const modelFlag = getCodexModelFlag();
-                response = execSync(
-                    `cd "${SCRIPT_DIR}" && codex ${modelFlag}"${message.replace(/"/g, '\\"')}"`,
+                const codexOutput = execSync(
+                    `cd "${SCRIPT_DIR}" && codex exec ${resumeFlag}${modelFlag}--json "${message.replace(/"/g, '\\"')}"`,
                     {
                         encoding: "utf-8",
                         timeout: 0, // No timeout - wait for Codex to finish
                         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
                     },
                 );
+
+                // Parse JSONL output and extract final agent_message
+                response = '';
+                const lines = codexOutput.trim().split('\n');
+                for (const line of lines) {
+                    try {
+                        const json = JSON.parse(line);
+                        if (json.type === 'item.completed' && json.item?.type === 'agent_message') {
+                            response = json.item.text;
+                        }
+                    } catch (e) {
+                        // Ignore lines that aren't valid JSON
+                    }
+                }
+
+                if (!response) {
+                    response = 'Sorry, I could not generate a response from Codex.';
+                }
             } else {
                 // Default to Claude (Anthropic)
                 log('INFO', `Using Claude provider`);
