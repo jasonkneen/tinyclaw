@@ -87,21 +87,12 @@ generate_label() {
 build_cron_command() {
     local agent="$1" message="$2" channel="$3" sender="$4" label="$5"
 
-    # The cron command is a self-contained bash snippet.
-    # It writes a JSON file into QUEUE_INCOMING each time it fires.
-    cat <<CMD
-/bin/bash -c 'QUEUE_INCOMING="$QUEUE_INCOMING"; MSG_ID="${label}_\$(date +\%s)_\$\$"; cat > "\$QUEUE_INCOMING/\${MSG_ID}.json" <<ENDMSG
-{
-  "channel": "$channel",
-  "sender": "$sender",
-  "senderId": "${TAG_PREFIX}:${label}",
-  "message": "@${agent} ${message}",
-  "timestamp": '\$(date +%s)'000,
-  "messageId": "'\$MSG_ID'"
-}
-ENDMSG
-'
-CMD
+    # Escape double quotes in the message for JSON safety
+    local escaped_message="${message//\"/\\\"}"
+
+    # The cron command must be a single line for crontab.
+    # Uses printf to write a JSON file into QUEUE_INCOMING each time it fires.
+    printf '%s' "/bin/bash -c 'QUEUE_INCOMING=\"$QUEUE_INCOMING\"; MSG_ID=\"${label}_\$(date +\\%s)_\$\$\"; printf '\\''{ \"channel\": \"$channel\", \"sender\": \"$sender\", \"senderId\": \"${TAG_PREFIX}:${label}\", \"message\": \"@${agent} ${escaped_message}\", \"timestamp\": %s000, \"messageId\": \"%s\" }'\\'' \"\$(date +%s)\" \"\$MSG_ID\" > \"\$QUEUE_INCOMING/\${MSG_ID}.json\"'"
 }
 
 # ────────────────────────────────────────────
@@ -226,7 +217,7 @@ cmd_delete() {
             return
         fi
 
-        crontab -l 2>/dev/null | grep -v "# ${TAG_PREFIX}:" | crontab -
+        (crontab -l 2>/dev/null | grep -v "# ${TAG_PREFIX}:" || true) | crontab -
         echo "Deleted $count tinyclaw schedule(s)."
         return
     fi
@@ -237,7 +228,7 @@ cmd_delete() {
         die "No schedule found with label '$label'."
     fi
 
-    crontab -l 2>/dev/null | grep -v "# ${TAG_PREFIX}:${label}$" | crontab -
+    (crontab -l 2>/dev/null | grep -v "# ${TAG_PREFIX}:${label}$" || true) | crontab -
     echo "Deleted schedule: $label"
 }
 

@@ -50,6 +50,7 @@ interface QueueData {
 interface ResponseData {
     channel: string;
     sender: string;
+    senderId?: string;
     message: string;
     originalMessage: string;
     timestamp: number;
@@ -429,9 +430,38 @@ async function checkOutgoingQueue(): Promise<void> {
                     // Clean up
                     pendingMessages.delete(messageId);
                     fs.unlinkSync(filePath);
+                } else if (responseData.senderId) {
+                    // Proactive/agent-initiated message — send directly to user
+                    try {
+                        const chatId = responseData.senderId.includes('@') ? responseData.senderId : `${responseData.senderId}@c.us`;
+                        const chat = await client.getChatById(chatId);
+
+                        // Send any attached files first
+                        if (responseData.files && responseData.files.length > 0) {
+                            for (const file of responseData.files) {
+                                try {
+                                    if (!fs.existsSync(file)) continue;
+                                    const media = MessageMedia.fromFilePath(file);
+                                    await chat.sendMessage(media);
+                                    log('INFO', `Sent file to WhatsApp: ${path.basename(file)}`);
+                                } catch (fileErr) {
+                                    log('ERROR', `Failed to send file ${file}: ${(fileErr as Error).message}`);
+                                }
+                            }
+                        }
+
+                        // Send text message
+                        if (responseText) {
+                            await chat.sendMessage(responseText);
+                        }
+
+                        log('INFO', `Sent proactive message to ${sender} (${responseText.length} chars${responseData.files ? `, ${responseData.files.length} file(s)` : ''})`);
+                    } catch (chatErr) {
+                        log('ERROR', `Failed to send proactive message to ${responseData.senderId}: ${(chatErr as Error).message}`);
+                    }
+                    fs.unlinkSync(filePath);
                 } else {
-                    // Message too old or already processed
-                    log('WARN', `No pending message for ${messageId}, cleaning up`);
+                    log('WARN', `No pending message for ${messageId} and no senderId, cleaning up`);
                     fs.unlinkSync(filePath);
                 }
             } catch (error) {

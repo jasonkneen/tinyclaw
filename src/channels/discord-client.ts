@@ -58,6 +58,7 @@ interface QueueData {
 interface ResponseData {
     channel: string;
     sender: string;
+    senderId?: string;
     message: string;
     originalMessage: string;
     timestamp: number;
@@ -441,9 +442,44 @@ async function checkOutgoingQueue(): Promise<void> {
                     // Clean up
                     pendingMessages.delete(messageId);
                     fs.unlinkSync(filePath);
+                } else if (responseData.senderId) {
+                    // Proactive/agent-initiated message — DM the user directly
+                    try {
+                        const user = await client.users.fetch(responseData.senderId);
+                        const dmChannel = await user.createDM();
+
+                        // Send any attached files
+                        if (responseData.files && responseData.files.length > 0) {
+                            const attachments: AttachmentBuilder[] = [];
+                            for (const file of responseData.files) {
+                                try {
+                                    if (!fs.existsSync(file)) continue;
+                                    attachments.push(new AttachmentBuilder(file));
+                                } catch (fileErr) {
+                                    log('ERROR', `Failed to prepare file ${file}: ${(fileErr as Error).message}`);
+                                }
+                            }
+                            if (attachments.length > 0) {
+                                await dmChannel.send({ files: attachments });
+                                log('INFO', `Sent ${attachments.length} file(s) to Discord`);
+                            }
+                        }
+
+                        // Send message text
+                        if (responseText) {
+                            const chunks = splitMessage(responseText);
+                            for (const chunk of chunks) {
+                                await dmChannel.send(chunk);
+                            }
+                        }
+
+                        log('INFO', `Sent proactive message to ${sender} (${responseText.length} chars${responseData.files ? `, ${responseData.files.length} file(s)` : ''})`);
+                    } catch (dmErr) {
+                        log('ERROR', `Failed to send proactive DM to ${responseData.senderId}: ${(dmErr as Error).message}`);
+                    }
+                    fs.unlinkSync(filePath);
                 } else {
-                    // Message too old or already processed
-                    log('WARN', `No pending message for ${messageId}, cleaning up`);
+                    log('WARN', `No pending message for ${messageId} and no senderId, cleaning up`);
                     fs.unlinkSync(filePath);
                 }
             } catch (error) {

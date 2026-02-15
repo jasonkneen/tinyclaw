@@ -4,6 +4,32 @@
 # AGENTS_DIR set after loading settings (uses workspace path)
 AGENTS_DIR=""
 
+# Ensure all agent workspaces have .agents/skills symlinked
+ensure_agent_skills_links() {
+    local skills_src="$SCRIPT_DIR/.agents/skills"
+    if [ ! -d "$skills_src" ]; then
+        skills_src="$TINYCLAW_HOME/.agents/skills"
+    fi
+    [ -d "$skills_src" ] || return 0
+
+    local agents_dir="$WORKSPACE_PATH"
+    [ -d "$agents_dir" ] || return 0
+
+    local agent_ids
+    agent_ids=$(jq -r '(.agents // {}) | keys[]' "$SETTINGS_FILE" 2>/dev/null) || return 0
+
+    for agent_id in $agent_ids; do
+        local agent_dir="$agents_dir/$agent_id"
+        [ -d "$agent_dir" ] || continue
+
+        if [ ! -e "$agent_dir/.agents/skills" ]; then
+            mkdir -p "$agent_dir/.agents"
+            ln -s "$skills_src" "$agent_dir/.agents/skills"
+            log "Linked .agents/skills/ for agent @${agent_id}"
+        fi
+    done
+}
+
 # List all configured agents
 agent_list() {
     if [ ! -f "$SETTINGS_FILE" ]; then
@@ -194,10 +220,25 @@ agent_add() {
         echo "  → Copied CLAUDE.md to .claude/ directory"
     fi
 
-    # Symlink skills directory into .claude/skills
-    if [ -d "$SCRIPT_DIR/.agents/skills" ] && [ ! -e "$AGENTS_DIR/$AGENT_ID/.claude/skills" ]; then
-        ln -s "$SCRIPT_DIR/.agents/skills" "$AGENTS_DIR/$AGENT_ID/.claude/skills"
-        echo "  → Linked skills to .claude/skills/"
+    # Resolve skills source directory
+    local skills_src="$SCRIPT_DIR/.agents/skills"
+    if [ ! -d "$skills_src" ]; then
+        skills_src="$TINYCLAW_HOME/.agents/skills"
+    fi
+
+    if [ -d "$skills_src" ]; then
+        # Symlink skills directory into .claude/skills
+        if [ ! -e "$AGENTS_DIR/$AGENT_ID/.claude/skills" ]; then
+            ln -s "$skills_src" "$AGENTS_DIR/$AGENT_ID/.claude/skills"
+            echo "  → Linked skills to .claude/skills/"
+        fi
+
+        # Symlink .agents/skills directory
+        if [ ! -e "$AGENTS_DIR/$AGENT_ID/.agents/skills" ]; then
+            mkdir -p "$AGENTS_DIR/$AGENT_ID/.agents"
+            ln -s "$skills_src" "$AGENTS_DIR/$AGENT_ID/.agents/skills"
+            echo "  → Linked skills to .agents/skills/"
+        fi
     fi
 
     # Create .tinyclaw directory and copy SOUL.md

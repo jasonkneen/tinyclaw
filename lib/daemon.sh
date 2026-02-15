@@ -54,6 +54,9 @@ start_daemon() {
         return 1
     fi
 
+    # Ensure all agent workspaces have .agents/skills symlink
+    ensure_agent_skills_links
+
     # Validate tokens for channels that need them
     for ch in "${ACTIVE_CHANNELS[@]}"; do
         local token_key="${CHANNEL_TOKEN_KEY[$ch]:-}"

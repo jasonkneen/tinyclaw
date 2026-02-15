@@ -22,7 +22,7 @@ If you already know the target from the current conversation context (channel an
 If you are running from a heartbeat invocation or are unsure which user to send to, list available targets first:
 
 ```bash
-npx ts-node --project <skill_dir>/scripts/tsconfig.json <skill_dir>/scripts/send_message.ts list-targets
+<skill_dir>/scripts/send-message.sh list-targets
 ```
 
 This reads `pairing.json` and prints all approved pairings with their `channel`, `senderId`, and `sender` (display name). Pick the appropriate target.
@@ -30,7 +30,7 @@ This reads `pairing.json` and prints all approved pairings with their `channel`,
 ### 2. Send the message
 
 ```bash
-npx ts-node --project <skill_dir>/scripts/tsconfig.json <skill_dir>/scripts/send_message.ts send \
+<skill_dir>/scripts/send-message.sh send \
   --channel <channel> \
   --sender-id <senderId> \
   --sender "<display name>" \

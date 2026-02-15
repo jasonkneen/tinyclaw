@@ -60,6 +60,7 @@ interface QueueData {
 interface ResponseData {
     channel: string;
     sender: string;
+    senderId?: string;
     message: string;
     originalMessage: string;
     timestamp: number;
@@ -525,9 +526,44 @@ async function checkOutgoingQueue(): Promise<void> {
                     // Clean up
                     pendingMessages.delete(messageId);
                     fs.unlinkSync(filePath);
+                } else if (responseData.senderId) {
+                    // Proactive/agent-initiated message — send directly to user
+                    const chatId = Number(responseData.senderId);
+
+                    // Send any attached files first
+                    if (responseData.files && responseData.files.length > 0) {
+                        for (const file of responseData.files) {
+                            try {
+                                if (!fs.existsSync(file)) continue;
+                                const ext = path.extname(file).toLowerCase();
+                                if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+                                    await bot.sendPhoto(chatId, file);
+                                } else if (['.mp3', '.ogg', '.wav', '.m4a'].includes(ext)) {
+                                    await bot.sendAudio(chatId, file);
+                                } else if (['.mp4', '.avi', '.mov', '.webm'].includes(ext)) {
+                                    await bot.sendVideo(chatId, file);
+                                } else {
+                                    await bot.sendDocument(chatId, file);
+                                }
+                                log('INFO', `Sent file to Telegram: ${path.basename(file)}`);
+                            } catch (fileErr) {
+                                log('ERROR', `Failed to send file ${file}: ${(fileErr as Error).message}`);
+                            }
+                        }
+                    }
+
+                    // Send message text
+                    if (responseText) {
+                        const chunks = splitMessage(responseText);
+                        for (const chunk of chunks) {
+                            await bot.sendMessage(chatId, chunk);
+                        }
+                    }
+
+                    log('INFO', `Sent proactive message to ${sender} (${responseText.length} chars${responseData.files ? `, ${responseData.files.length} file(s)` : ''})`);
+                    fs.unlinkSync(filePath);
                 } else {
-                    // Message too old or already processed
-                    log('WARN', `No pending message for ${messageId}, cleaning up`);
+                    log('WARN', `No pending message for ${messageId} and no senderId, cleaning up`);
                     fs.unlinkSync(filePath);
                 }
             } catch (error) {
