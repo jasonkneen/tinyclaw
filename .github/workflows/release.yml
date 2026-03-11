@@ -87,6 +87,7 @@ jobs:
           cp package.json "$BUNDLE_DIR/"
           cp package-lock.json "$BUNDLE_DIR/"
           cp tsconfig.json "$BUNDLE_DIR/"
+          cp tsconfig.base.json "$BUNDLE_DIR/"
           cp README.md "$BUNDLE_DIR/"
           cp AGENTS.md "$BUNDLE_DIR/"
           cp SOUL.md "$BUNDLE_DIR/"
